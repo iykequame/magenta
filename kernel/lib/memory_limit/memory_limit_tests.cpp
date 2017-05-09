@@ -20,7 +20,7 @@ static test_range_t nuc_ranges[] = {
     {0x100000000, 0x36f000000},
 };
 
-static mem_limit_cfg_t nuc_cfg = {
+static mem_limit_ctx_t nuc_ctx = {
     .kernel_base = 0x100000,
     .kernel_size = 4 * MB,
     .ramdisk_base = 0x818e4000,
@@ -41,7 +41,7 @@ static test_range_t acer12_ranges[] = {
     {0x100000000, 0x6f000000},
 };
 
-static mem_limit_cfg_t acer12_cfg = {
+static mem_limit_ctx_t acer12_ctx = {
     .kernel_base = 0x100000,
     .kernel_size = 4u * MB,
     .ramdisk_base = 0x71b20000,
@@ -55,7 +55,7 @@ static test_range_t rpi3_ranges[] = {
     {0xffff000000000000, 0x20000000},
 };
 
-static mem_limit_cfg_t rpi3_cfg = {
+static mem_limit_ctx_t rpi3_ctx = {
     .kernel_base = 0xffff000000000000,
     .kernel_size = 4 * MB,
     .ramdisk_base = 0xffff000007d44000,
@@ -66,7 +66,7 @@ static mem_limit_cfg_t rpi3_cfg = {
 };
 
 typedef struct {
-    mem_limit_cfg_t cfg;
+    mem_limit_ctx_t ctx;
     test_range_t* ranges;
     size_t range_cnt;
 } platform_test_cases_t;
@@ -83,29 +83,29 @@ static bool ml_test_platforms(void* context) {
     status_t status;
     size_t used;
     platform_test_cases_t test_cases[] = {
-        {nuc_cfg, nuc_ranges, countof(nuc_ranges)},
-        {acer12_cfg, acer12_ranges, countof(acer12_ranges)},
-        {rpi3_cfg, rpi3_ranges, countof(rpi3_ranges)},
+        {nuc_ctx, nuc_ranges, countof(nuc_ranges)},
+        {acer12_ctx, acer12_ranges, countof(acer12_ranges)},
+        {rpi3_ctx, rpi3_ranges, countof(rpi3_ranges)},
     };
 
     for (auto& test : test_cases) {
-        auto cfg = test.cfg;
+        auto ctx = test.ctx;
         for (size_t memory_limit = 512 * MB; memory_limit >= 32 * MB; memory_limit /= 2) {
             size_t size = 0;
-            cfg.memory_limit = memory_limit;
-            cfg.found_kernel = false;
-            cfg.found_ramdisk = false;
+            ctx.memory_limit = memory_limit;
+            ctx.found_kernel = false;
+            ctx.found_ramdisk = false;
 
             for (size_t i = 0; i < test.range_cnt; i++) {
-                status = mem_limit_apply(&cfg, test.ranges[i].base, test.ranges[i].size, vecs, countof(vecs), &used);
+                status = mem_limit_get_iovs(&ctx, test.ranges[i].base, test.ranges[i].size, vecs, &used);
                 EXPECT_EQ(NO_ERROR, status, "checking status");
                 for (size_t i = 0; i < used; i++) {
                     size += vecs[i].iov_len;
                 }
             }
 
-            EXPECT_EQ(true, cfg.found_kernel, "checking kernel");
-            EXPECT_EQ(true, cfg.found_ramdisk, "checking ramdisk");
+            EXPECT_EQ(true, ctx.found_kernel, "checking kernel");
+            EXPECT_EQ(true, ctx.found_ramdisk, "checking ramdisk");
             EXPECT_EQ(memory_limit, size, "comparing limit");
         }
     }
@@ -114,26 +114,26 @@ static bool ml_test_platforms(void* context) {
 
 static bool ml_test_fat_ramdisk(void* context) {
     BEGIN_TEST;
-    mem_limit_cfg_t cfg = nuc_cfg;
+    mem_limit_ctx_t ctx = nuc_ctx;
     size_t memory_limit = 64 * MB;
     size_t size = 0;
-    cfg.ramdisk_size = 64 * MB;
-    cfg.memory_limit = memory_limit;
+    ctx.ramdisk_size = 64 * MB;
+    ctx.memory_limit = memory_limit;
     iovec_t vecs[2];
     size_t used;
 
     for (size_t i = 0; i < countof(nuc_ranges); i++) {
-        status_t status = mem_limit_apply(&cfg, nuc_ranges[i].base, nuc_ranges[i].size, vecs, countof(vecs), &used);
+        status_t status = mem_limit_get_iovs(&ctx, nuc_ranges[i].base, nuc_ranges[i].size, vecs, &used);
         EXPECT_EQ(NO_ERROR, status, "checking status");
         for (size_t i = 0; i < used; i++) {
             size += vecs[i].iov_len;
         }
     }
 
-    EXPECT_EQ(true, cfg.found_kernel, "checking kernel");
-    EXPECT_EQ(true, cfg.found_ramdisk, "checking ramdisk");
+    EXPECT_EQ(true, ctx.found_kernel, "checking kernel");
+    EXPECT_EQ(true, ctx.found_ramdisk, "checking ramdisk");
     EXPECT_NEQ(memory_limit, size, "checking that size and limit don't match");
-    EXPECT_EQ(cfg.kernel_size + cfg.ramdisk_size, size, "checking the limit grew to fit kernel + ramdisk");
+    EXPECT_EQ(ctx.kernel_size + ctx.ramdisk_size, size, "checking the limit grew to fit kernel + ramdisk");
     END_TEST;
 }
 
