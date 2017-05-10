@@ -8,11 +8,9 @@ typedef struct {
     size_t size;
 } test_range_t;
 
-// Memory map provided by EFI 5/3/17
-static test_range_t nuc_ranges[] = {
-    {
-        0, 0x58000,
-    },
+// Memory map read off a NUC
+static const test_range_t nuc_ranges[] = {
+    {0, 0x58000 },
     {0x59000, 0x45000},
     {0x100000, 0x85d8b000},
     {0x85eb6000, 0x4375000},
@@ -20,7 +18,7 @@ static test_range_t nuc_ranges[] = {
     {0x100000000, 0x36f000000},
 };
 
-static mem_limit_ctx_t nuc_ctx = {
+static const mem_limit_ctx_t nuc_ctx = {
     .kernel_base = 0x100000,
     .kernel_size = 4 * MB,
     .ramdisk_base = 0x818e4000,
@@ -30,8 +28,8 @@ static mem_limit_ctx_t nuc_ctx = {
     .found_ramdisk = 0,
 };
 
-// Memory map provided by EFI 5/3/17
-static test_range_t acer12_ranges[] = {
+// Memory map read off an Acer12 Switch
+static const test_range_t acer12_ranges[] = {
     {0, 0x58000},
     {0x59000, 0x2d000},
     {0x100000, 0x7359d000},
@@ -41,7 +39,7 @@ static test_range_t acer12_ranges[] = {
     {0x100000000, 0x6f000000},
 };
 
-static mem_limit_ctx_t acer12_ctx = {
+static const mem_limit_ctx_t acer12_ctx = {
     .kernel_base = 0x100000,
     .kernel_size = 4u * MB,
     .ramdisk_base = 0x71b20000,
@@ -51,11 +49,12 @@ static mem_limit_ctx_t acer12_ctx = {
     .found_ramdisk = 0,
 };
 
-static test_range_t rpi3_ranges[] = {
+// rpi3 has a single contiguous 2GB block of memory
+static const test_range_t rpi3_ranges[] = {
     {0xffff000000000000, 0x20000000},
 };
 
-static mem_limit_ctx_t rpi3_ctx = {
+static const mem_limit_ctx_t rpi3_ctx = {
     .kernel_base = 0xffff000000000000,
     .kernel_size = 4 * MB,
     .ramdisk_base = 0xffff000007d44000,
@@ -90,20 +89,25 @@ static bool ml_test_platforms(void* context) {
 
     for (auto& test : test_cases) {
         auto ctx = test.ctx;
-        for (size_t memory_limit = 512 * MB; memory_limit >= 32 * MB; memory_limit /= 2) {
+        size_t platform_size = 0;
+        char platform_name[16];
+        for (size_t memory_limit = 4 * GB; memory_limit >= 32 * MB; memory_limit /= 2) {
             size_t size = 0;
+            // For test purposes these are set by hand rather than using the init function
             ctx.memory_limit = memory_limit;
             ctx.found_kernel = false;
             ctx.found_ramdisk = false;
 
             for (size_t i = 0; i < test.range_cnt; i++) {
                 status = mem_limit_get_iovs(&ctx, test.ranges[i].base, test.ranges[i].size, vecs, &used);
+                platform_size += test.ranges[i].size;
                 EXPECT_EQ(NO_ERROR, status, "checking status");
                 for (size_t i = 0; i < used; i++) {
                     size += vecs[i].iov_len;
                 }
             }
 
+            sprintf(
             EXPECT_EQ(true, ctx.found_kernel, "checking kernel");
             EXPECT_EQ(true, ctx.found_ramdisk, "checking ramdisk");
             EXPECT_EQ(memory_limit, size, "comparing limit");
@@ -112,6 +116,8 @@ static bool ml_test_platforms(void* context) {
     END_TEST;
 }
 
+// Test that the memory limit is expanded if the ramdisk would otherwise be
+// truncated for being too large.
 static bool ml_test_fat_ramdisk(void* context) {
     BEGIN_TEST;
     mem_limit_ctx_t ctx = nuc_ctx;
